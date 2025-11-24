@@ -1,9 +1,14 @@
 import os
 import random
+import asyncio
 import pygame
+import sys
 
 # Initialize Pygame
 pygame.init()
+
+# Check if running in browser
+IS_WEB = sys.platform == "emscripten"
 
 # Screen dimensions
 SCREEN_WIDTH = 420
@@ -221,14 +226,16 @@ pacman_image.fill(YELLOW)
 ghost_images = []
 for img_name in ["ghl.png", "kajabi.png", "sk.png", "sys.png"]:
     try:
-        img_path = os.path.join("imgs", img_name)
+        img_path = os.path.join("imgs", img_name) if not IS_WEB else f"imgs/{img_name}"
         image = pygame.image.load(img_path)
         image = pygame.transform.scale(image, (24, 24))
         ghost_images.append(image)
-    except pygame.error as e:
-        print(f"Error loading image {img_name}: {e}")
-        placeholder = pygame.Surface((30, 30))
-        placeholder.fill(WHITE)
+    except (pygame.error, FileNotFoundError) as e:
+        print(f"Error loading image {img_name}: {e}, using placeholder")
+        # Create colored placeholder for each ghost
+        placeholder = pygame.Surface((24, 24))
+        colors = [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)]
+        placeholder.fill(colors[len(ghost_images) % len(colors)])
         ghost_images.append(placeholder)
 
 
@@ -317,126 +324,138 @@ player, ghost_list, pellet_list, power_pellet_list, all_sprites_list, wall_list 
 
 
 # Game loop
-running = True
-game_over = False
-win = False
-clock = pygame.time.Clock()
-score = 0
+async def main():
+    global ghost_edible, power_timer, player, ghost_list, pellet_list, power_pellet_list, all_sprites_list, wall_list
 
-while running:
-    # Event handling
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.KEYDOWN:
-            if game_over or win:
-                if event.key == pygame.K_r:
-                    player, ghost_list, pellet_list, power_pellet_list, all_sprites_list, wall_list = reset_game()
-                    game_over = False
-                    win = False
-                    score = 0
-                    # Reset power state - DON'T assign here, causes Python scoping issues!
-                    globals()['ghost_edible'] = False
-                    globals()['power_timer'] = 0
-            else:
-                if event.key == pygame.K_LEFT:
-                    player.changespeed(-3, 0)
-                elif event.key == pygame.K_RIGHT:
-                    player.changespeed(3, 0)
-                elif event.key == pygame.K_UP:
-                    player.changespeed(0, -3)
-                elif event.key == pygame.K_DOWN:
-                    player.changespeed(0, 3)
-        elif event.type == pygame.KEYUP:
-            if not game_over and not win:
-                if event.key in (pygame.K_LEFT, pygame.K_RIGHT):
-                    player.changespeed(0, player.change_y)
-                elif event.key in (pygame.K_UP, pygame.K_DOWN):
-                    player.changespeed(player.change_x, 0)
+    running = True
+    game_over = False
+    win = False
+    clock = pygame.time.Clock()
+    score = 0
 
-    if not game_over and not win:
-        # Game logic
-        player.update(wall_list)
-        ghost_list.update()
+    while running:
+        # Event handling
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if game_over or win:
+                    if event.key == pygame.K_r:
+                        player, ghost_list, pellet_list, power_pellet_list, all_sprites_list, wall_list = reset_game()
+                        game_over = False
+                        win = False
+                        score = 0
+                        # Reset power state - DON'T assign here, causes Python scoping issues!
+                        globals()['ghost_edible'] = False
+                        globals()['power_timer'] = 0
+                else:
+                    if event.key == pygame.K_LEFT:
+                        player.changespeed(-3, 0)
+                    elif event.key == pygame.K_RIGHT:
+                        player.changespeed(3, 0)
+                    elif event.key == pygame.K_UP:
+                        player.changespeed(0, -3)
+                    elif event.key == pygame.K_DOWN:
+                        player.changespeed(0, 3)
+            elif event.type == pygame.KEYUP:
+                if not game_over and not win:
+                    if event.key in (pygame.K_LEFT, pygame.K_RIGHT):
+                        player.changespeed(0, player.change_y)
+                    elif event.key in (pygame.K_UP, pygame.K_DOWN):
+                        player.changespeed(player.change_x, 0)
 
-        pellet_hit_list = pygame.sprite.spritecollide(
-            player, pellet_list, True)
-        for pellet in pellet_hit_list:
-            score += 1
-            all_sprites_list.remove(pellet)
+        if not game_over and not win:
+            # Game logic
+            player.update(wall_list)
+            ghost_list.update()
 
-        # Check for power pellet collision
-        power_hit_list = pygame.sprite.spritecollide(
-            player, power_pellet_list, True)
-        for power_pellet in power_hit_list:
-            score += 5
-            all_sprites_list.remove(power_pellet)
-            # Activate power mode for 10 seconds (600 frames at 60 fps)
-            globals()['ghost_edible'] = True
-            globals()['power_timer'] = 600
-            for ghost in ghost_list:
-                ghost.set_edible(True)
+            pellet_hit_list = pygame.sprite.spritecollide(
+                player, pellet_list, True)
+            for pellet in pellet_hit_list:
+                score += 1
+                all_sprites_list.remove(pellet)
 
-        # Handle power timer countdown
-        if ghost_edible and power_timer > 0:
-            globals()['power_timer'] = power_timer - 1
-            if globals()['power_timer'] == 0:
-                globals()['ghost_edible'] = False
+            # Check for power pellet collision
+            power_hit_list = pygame.sprite.spritecollide(
+                player, power_pellet_list, True)
+            for power_pellet in power_hit_list:
+                score += 5
+                all_sprites_list.remove(power_pellet)
+                # Activate power mode for 10 seconds (600 frames at 60 fps)
+                globals()['ghost_edible'] = True
+                globals()['power_timer'] = 600
                 for ghost in ghost_list:
-                    ghost.set_edible(False)
+                    ghost.set_edible(True)
 
-        # Win condition: collect all pellets
-        if len(pellet_list) == 0 and len(power_pellet_list) == 0:
-            win = True
+            # Handle power timer countdown
+            if ghost_edible and power_timer > 0:
+                globals()['power_timer'] = power_timer - 1
+                if globals()['power_timer'] == 0:
+                    globals()['ghost_edible'] = False
+                    for ghost in ghost_list:
+                        ghost.set_edible(False)
 
-        ghost_hit_list = pygame.sprite.spritecollide(player, ghost_list, False)
-        if ghost_hit_list:
-            if ghost_edible:
-                for ghost in ghost_hit_list:
-                    ghost.kill()
-                    score += 10
-            else:
-                game_over = True
+            ghost_hit_list = pygame.sprite.spritecollide(player, ghost_list, False)
+            if ghost_hit_list:
+                if ghost_edible:
+                    for ghost in ghost_hit_list:
+                        ghost.kill()
+                        score += 10
+                    # Check if all ghosts are eliminated
+                    if len(ghost_list) == 0:
+                        win = True
+                else:
+                    game_over = True
 
-    # Drawing
-    screen.fill(BLACK)
+            # Win condition: collect all pellets OR eliminate all ghosts
+            if (len(pellet_list) == 0 and len(power_pellet_list) == 0) or len(ghost_list) == 0:
+                win = True
 
-    # Draw game sprites
-    all_sprites_list.draw(screen)
+        # Drawing
+        screen.fill(BLACK)
 
-    # Draw score at top with background
-    font = pygame.font.Font(None, 28)
-    text = font.render("Score: " + str(score), 1, WHITE)
-    score_bg = pygame.Surface((140, 35))
-    score_bg.fill(BLACK)
-    screen.blit(score_bg, (5, 5))
-    screen.blit(text, (10, 10))
+        # Draw game sprites
+        all_sprites_list.draw(screen)
 
-    if game_over:
-        font = pygame.font.Font(None, 60)
-        text = font.render("Game Over", 1, WHITE)
-        text_rect = text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
-        screen.blit(text, text_rect)
-        font = pygame.font.Font(None, 24)
-        text = font.render("Press 'r' to restart", 1, WHITE)
-        text_rect = text.get_rect(
-            center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 45))
-        screen.blit(text, text_rect)
+        # Draw score at top with background
+        font = pygame.font.Font(None, 28)
+        text = font.render("Score: " + str(score), 1, WHITE)
+        score_bg = pygame.Surface((140, 35))
+        score_bg.fill(BLACK)
+        screen.blit(score_bg, (5, 5))
+        screen.blit(text, (10, 10))
 
-    if win:
-        font = pygame.font.Font(None, 60)
-        text = font.render("You Win!", 1, WHITE)
-        text_rect = text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
-        screen.blit(text, text_rect)
-        font = pygame.font.Font(None, 24)
-        text = font.render("Press 'r' to restart", 1, WHITE)
-        text_rect = text.get_rect(
-            center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 45))
-        screen.blit(text, text_rect)
+        if game_over:
+            font = pygame.font.Font(None, 60)
+            text = font.render("Game Over", 1, WHITE)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
+            screen.blit(text, text_rect)
+            font = pygame.font.Font(None, 24)
+            text = font.render("Press 'r' to restart", 1, WHITE)
+            text_rect = text.get_rect(
+                center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 45))
+            screen.blit(text, text_rect)
 
-    # Update the display
-    pygame.display.flip()
-    clock.tick(60)
+        if win:
+            font = pygame.font.Font(None, 60)
+            text = font.render("You Win!", 1, WHITE)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
+            screen.blit(text, text_rect)
+            font = pygame.font.Font(None, 24)
+            text = font.render("Press 'r' to restart", 1, WHITE)
+            text_rect = text.get_rect(
+                center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 45))
+            screen.blit(text, text_rect)
 
-# Quit Pygame
-pygame.quit()
+        # Update the display
+        pygame.display.flip()
+        clock.tick(60)
+
+        # Allow browser to process events (CRITICAL for web!)
+        await asyncio.sleep(0)
+
+    pygame.quit()
+
+
+# Run the game
+asyncio.run(main())
