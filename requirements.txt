@@ -1,0 +1,14 @@
+# PacMac Game Dependencies
+# Python 3.7+ required
+
+# Pygame - Cross-platform set of Python modules for game development
+# Used for: Game loop, sprite management, collision detection, rendering
+pygame>=2.5.0,<3.0.0
+
+# Optional: Development and testing dependencies
+# Uncomment below if you want to extend the project
+
+# pylint>=2.15.0        # Code quality and style checking
+# pytest>=7.0.0         # Unit testing framework
+# black>=22.0.0         # Code formatting
+# mypy>=0.990           # Static type checking
